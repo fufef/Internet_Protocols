@@ -8,7 +8,7 @@ TIME1970 = 2208988800
 def sntp_client():
     client = socket.socket()
     client.connect((host, port))
-    data = b'\x1b' + 47 * b'\0'
+    data = b'\x23' + 47 * b'\0'
     client.send(data)
     data = client.recv(1024)
     if data:

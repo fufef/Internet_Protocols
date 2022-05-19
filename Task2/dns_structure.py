@@ -5,19 +5,19 @@ types = {"A": 1, "NS": 1, "MD":1, "MF": 1, "CNAME": 1, "SOA": 1, }
 
 def _get_url(start, data):
     name = b""
-    l = int.from_bytes(data[start], 'big')
+    l = data[start]
     while l:
         if l & 0b1100_0000:
             start1 = int.from_bytes(data[start:start + 2], 'big') & 0b11_1111_1111_1111
             name1, _ = _get_url(start1, data)
             return name1 + b'.' + name, start + 2
         else:
-            name = data[start + 1:start + 1 + l] + b'.' + name
-            start += l
+            name += b'.' + data[start + 1:start + 1 + l]
+            start += l + 1
 
         l = data[start]
 
-    return name, start
+    return name.lstrip(b'.'), start + 1
 
 
 class DnsPackage:
@@ -34,9 +34,10 @@ class DnsPackage:
                           self.header.z << 6 | self.header.rcode, self.header.qdcount, self.header.ancount,
                           self.header.nscount, self.header.arcount)
         for i in self.questions:
-            ar = i.name.split('.')
+            ar = i.qname.split('.')
             for a in ar:
-                res += struct.pack("!Bs", len(a), a)
+                b = a.encode('utf-8')
+                res += struct.pack("!B", len(a)) + b
             res += struct.pack("!B", 0b0)
             res += struct.pack("!HH", i.qtype, i.qclass)
 
@@ -64,8 +65,9 @@ class DnsPackage:
         for i in range(true_header.qdcount):
             name, start = _get_url(start, data)
             name = name.decode('utf-8')
-            qtype, qclass = struct.unpack("!HH", data[start:start + 2])
-            start += 2
+            g = data[start:start + 4]
+            qtype, qclass = struct.unpack("!HH", g)
+            start += 4
             questions.append(Question(name, qtype, qclass))
 
         if true_header.qr == 0b0:
@@ -75,8 +77,8 @@ class DnsPackage:
         for i in range(true_header.ancount):
             name, start = _get_url(start, data)
             name = name.decode('utf-8')
-            type, clas, ttl, rdlength = struct.unpack("!HHIH", data[start:start + 5])
-            start += 5
+            type, clas, ttl, rdlength = struct.unpack("!HHIH", data[start:start + 10])
+            start += 10
             rdata = data[start:start+rdlength]
             start += rdlength
             answers.append(Answer(name, type, clas, ttl, rdlength, rdata))
@@ -85,8 +87,8 @@ class DnsPackage:
         for i in range(true_header.nscount):
             name, start = _get_url(start, data)
             name = name.decode('utf-8')
-            type, clas, ttl, rdlength = struct.unpack("!HHIH", data[start:start + 5])
-            start += 5
+            type, clas, ttl, rdlength = struct.unpack("!HHIH", data[start:start + 10])
+            start += 10
             rdata = data[start:start + rdlength]
             start += rdlength
             authorities.append(Answer(name, type, clas, ttl, rdlength, rdata))
@@ -95,8 +97,8 @@ class DnsPackage:
         for i in range(true_header.arcount):
             name, start = _get_url(start, data)
             name = name.decode('utf-8')
-            type, clas, ttl, rdlength = struct.unpack("!HHIH", data[start:start + 5])
-            start += 5
+            type, clas, ttl, rdlength = struct.unpack("!HHIH", data[start:start + 10])
+            start += 10
             rdata = data[start:start + rdlength]
             start += rdlength
             additionals.append(Answer(name, type, clas, ttl, rdlength, rdata))
