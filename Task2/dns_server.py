@@ -1,178 +1,84 @@
-import struct
+import socket
+from datetime import datetime, timedelta
 
-types = {"A": 1, "NS": 1, "MD": 1, "MF": 1, "CNAME": 1, "SOA": 1, }
-
-
-def _get_url(start, data):
-    name = b''
-    l = data[start]
-    while l:
-        if l & 0b1100_0000:
-            start1 = struct.unpack('!H', data[start:start + 2])[0] & \
-                     0b11_1111_1111_1111
-            name1 = _get_url(start1, data)[0]
-
-            if name:
-                name = name1
-            else:
-                name += b'.' + name1
-
-            return name, start + 2
-        else:
-            name += b'.' + data[start + 1:start + 1 + l]
-            start += l + 1
-
-        l = data[start]
-
-    return name.strip(b'.'), start + 1
+import dns_structure
 
 
-class DnsPackage:
-    def __init__(self, header, questions, answers, authorities, additionals):
-        self.header = header
-        self.questions = questions
-        self.answers = answers
-        self.authorities = authorities
-        self.additionals = additionals
+def receive_data(server, data_from_client):
+    sock_for_root = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    pack_to_root = dns_structure.DnsPackage(
+        data_from_client.header, data_from_client.questions, [], [], [])
+    sock_for_root.sendto(pack_to_root.pack(), (server, 53))
+    data_from_root = dns_structure.DnsPackage.unpack(
+        sock_for_root.recvfrom(1024)[0])
 
-    def pack(self):
-        res = self.header.pack()
-
-        for i in self.questions + self.answers + self.authorities + \
-                 self.additionals:
-            res += i.pack()
-
-        return res
-
-    @staticmethod
-    def unpack(data):
-        true_header = Header.unpack(data[:12])
-
-        start = 12
-        questions = []
-        for i in range(true_header.qdcount):
-            name, start = _get_url(start, data)
-            name = name.decode('utf-8').replace('.Dlink', '')
-            g = data[start:start + 4]
-            qtype, qclass = struct.unpack("!HH", g)
-            start += 4
-            questions.append(Question(name, qtype, qclass))
-
-        if true_header.qr == 0b0:
-            return DnsPackage(true_header, questions, [], [], [])
-
-        answers = []
-        for i in range(true_header.ancount):
-            name, start = _get_url(start, data)
-            name = name.decode('utf-8')
-            type, clas, ttl, rdlength = struct.unpack("!HHIH",
-                                                      data[start:start + 10])
-            start += 10
-            rdata = data[start:start + rdlength]
-            start += rdlength
-            answers.append(Answer(name, type, clas, ttl, rdlength, rdata))
-
-        authorities = []
-        for i in range(true_header.nscount):
-            name, start = _get_url(start, data)
-            name = name.decode('utf-8')
-            type, clas, ttl, rdlength = struct.unpack("!HHIH",
-                                                      data[start:start + 10])
-            start += 10
-            rdata = data[start:start + rdlength]
-            start += rdlength
-            authorities.append(Answer(name, type, clas, ttl, rdlength, rdata))
-
-        additionals = []
-        for i in range(true_header.arcount):
-            name, start = _get_url(start, data)
-            name = name.decode('utf-8')
-            type, clas, ttl, rdlength = struct.unpack("!HHIH",
-                                                      data[start:start + 10])
-            start += 10
-            rdata = data[start:start + rdlength]
-            start += rdlength
-            additionals.append(Answer(name, type, clas, ttl, rdlength, rdata))
-
-        return DnsPackage(true_header, questions, answers, authorities,
-                          additionals)
+    return data_from_root
 
 
-class Header:
-    def __init__(
-            self, id, qr, qpcode, aa, tc, rd, ra, z, rcode, qdcount,
-            ancount, nscount, arcount):
-        self.id = id
-        self.qr = qr
-        self.qpcode = qpcode
-        self.aa = aa
-        self.tc = tc
-        self.rd = rd
-        self.ra = ra
-        self.z = z
-        self.rcode = rcode
-        self.qdcount = qdcount
-        self.ancount = ancount
-        self.nscount = nscount
-        self.arcount = arcount
+def main():
+    port = 53
+    host = "127.0.0.1"
+    cache = dict()
 
-    def pack(self):
-        third_fourth_bytes_value = \
-            self.qr << 15 | self.qpcode << 11 | self.aa << 10 | \
-            self.tc << 9 | self.rd << 8 | self.ra << 7 | self.z << 6 | \
-            self.rcode
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.bind((host, port))
 
-        return struct.pack("!6H", self.id, third_fourth_bytes_value,
-                           self.qdcount, self.ancount, self.nscount,
-                           self.arcount)
+    while True:
+        data, address = sock.recvfrom(1024)
 
-    @staticmethod
-    def unpack(data):
-        _bytes = struct.unpack("!6H", data)
-        return Header(_bytes[0], _bytes[1] >> 15, _bytes[1] >> 11 & 0b1111,
-                      _bytes[1] >> 10 & 0b1, _bytes[1] >> 9 & 0b1,
-                      _bytes[1] >> 8 & 0b1, _bytes[1] >> 7 & 0b1,
-                      _bytes[1] >> 4 & 0b111, _bytes[1] & 0b1111, _bytes[2],
-                      _bytes[3], _bytes[4], _bytes[5])
+        if data:
+            data_from_client = dns_structure.DnsPackage.unpack(data)
+            sock_for_root = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+            ans = []
+            add = []
+            auth = []
+            for q in data_from_client.questions:
+                if q in cache:
+                    q_ans, q_add, q_auth, time_limit = cache[q]
+
+                    if datetime.now() < time_limit:
+                        ans += q_ans
+                        add += q_add
+                        auth += q_auth
+                        continue
+
+                pack_to_root = dns_structure.DnsPackage(
+                    data_from_client.header, [q], [], [], []).pack()
+                sock_for_root.sendto(pack_to_root, ("192.203.230.10", 53))
+                data_from_root = dns_structure.DnsPackage.unpack(
+                    sock_for_root.recvfrom(1024)[0])
+
+                d = data_from_root
+                while d.header.ancount == 0:
+                    r = list(filter(lambda x: x.type == 1, d.additionals))
+
+                    if len(r) == 0:
+                        r = list(filter(lambda x: x.type == 2, d.authorities))
+
+                    next_ip = '.'.join(map(str, r[0].rdata))
+                    d = receive_data(next_ip, data_from_client)
+
+                cache[q] = (d.answers, d.additionals, d.authorities,
+                            datetime.now() +
+                            timedelta(seconds=d.answers[0].ttl))
+
+                ans += d.answers
+                add += d.additionals
+                auth += d.authorities
+
+            req_header = data_from_client.header
+            ans_header = dns_structure.Header(
+                req_header.id, 1, req_header.qpcode, 0, req_header.tc,
+                req_header.rd, 1, req_header.z, req_header.rcode,
+                req_header.qdcount, len(ans), len(auth), len(add))
+
+            pack_to_client = dns_structure.DnsPackage(
+                ans_header, data_from_client.questions, ans, auth, add)
+
+            a = pack_to_client.pack()
+            sock.sendto(a, address)
 
 
-class Question:
-    def __init__(self, qname, qtype, qclass):
-        self.qname = qname
-        self.qtype = qtype
-        self.qclass = qclass
-
-    def pack(self):
-        res = b''
-
-        for a in self.qname.strip('.').split('.'):
-            res += struct.pack("!B", len(a)) + a.encode()
-
-        return res + struct.pack("!BHH", 0b0, self.qtype, self.qclass)
-
-    def __eq__(self, other):
-        return self.qname == other.qname and self.qtype == other.qtype and \
-               self.qclass == other.qclass
-
-    def __hash__(self):
-        return ((hash(self.qname) * 69127) + hash(self.qtype)) * 69127 + \
-               hash(self.qclass)
-
-
-class Answer:
-    def __init__(self, name, type, clas, ttl, rdlength, rdata):
-        self.name = name
-        self.type = type
-        self.clas = clas
-        self.ttl = ttl
-        self.rdlength = rdlength
-        self.rdata = rdata
-
-    def pack(self):
-        res = b''
-
-        for a in self.name.strip('.').split('.'):
-            res += struct.pack("!B", len(a)) + a.encode()
-
-        return res + struct.pack("!BHHIH", 0b0, self.type, self.clas,
-                                 self.ttl, self.rdlength) + self.rdata
+if __name__ == '__main__':
+    main()
