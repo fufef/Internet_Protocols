@@ -3,14 +3,14 @@ import struct
 types = {"A": 1, "NS": 1, "MD": 1, "MF": 1, "CNAME": 1, "SOA": 1, }
 
 
-def _get_url(start, data):
+def get_url(start, data):
     name = b''
     l = data[start]
     while l:
         if l & 0b1100_0000:
             start1 = struct.unpack('!H', data[start:start + 2])[0] & \
                      0b11_1111_1111_1111
-            name1 = _get_url(start1, data)[0]
+            name1 = get_url(start1, data)[0]
 
             if name:
                 name = name1
@@ -51,8 +51,8 @@ class DnsPackage:
         start = 12
         questions = []
         for i in range(true_header.qdcount):
-            name, start = _get_url(start, data)
-            name = name.decode('utf-8').removesuffix('.Dlink').removesuffix('.at.urfu.ru')
+            name, start = get_url(start, data)
+            name = name.decode('utf-8')
             g = data[start:start + 4]
             qtype, qclass = struct.unpack("!HH", g)
             start += 4
@@ -63,7 +63,7 @@ class DnsPackage:
 
         answers = []
         for i in range(true_header.ancount):
-            name, start = _get_url(start, data)
+            name, start = get_url(start, data)
             name = name.decode('utf-8')
             type, clas, ttl, rdlength = struct.unpack("!HHIH",
                                                       data[start:start + 10])
@@ -74,7 +74,7 @@ class DnsPackage:
 
         authorities = []
         for i in range(true_header.nscount):
-            name, start = _get_url(start, data)
+            name, start = get_url(start, data)
             name = name.decode('utf-8')
             type, clas, ttl, rdlength = struct.unpack("!HHIH",
                                                       data[start:start + 10])
@@ -85,7 +85,7 @@ class DnsPackage:
 
         additionals = []
         for i in range(true_header.arcount):
-            name, start = _get_url(start, data)
+            name, start = get_url(start, data)
             name = name.decode('utf-8')
             type, clas, ttl, rdlength = struct.unpack("!HHIH",
                                                       data[start:start + 10])

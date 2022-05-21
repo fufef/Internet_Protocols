@@ -3,12 +3,14 @@ from datetime import datetime, timedelta
 
 import dns_structure
 
+ROOT_SERVER_IP = "198.41.0.4"
+
 
 def receive_data(server, data_from_client):
     sock_for_root = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     pack_to_root = dns_structure.DnsPackage(
         data_from_client.header, data_from_client.questions, [], [], [])
-    sock_for_root.sendto(pack_to_root.pack(), (server, 53))
+    sock_for_root.sendto(data_from_client.pack(), (server, 53))
     data_from_root = dns_structure.DnsPackage.unpack(
         sock_for_root.recvfrom(1024)[0])
 
@@ -45,7 +47,7 @@ def main():
 
                 pack_to_root = dns_structure.DnsPackage(
                     data_from_client.header, [q], [], [], []).pack()
-                sock_for_root.sendto(pack_to_root, ("192.203.230.10", 53))
+                sock_for_root.sendto(pack_to_root, (ROOT_SERVER_IP, 53))
                 data_from_root = dns_structure.DnsPackage.unpack(
                     sock_for_root.recvfrom(1024)[0])
 
@@ -53,15 +55,39 @@ def main():
                 while d.header.ancount == 0:
                     r = list(filter(lambda x: x.type == 1, d.additionals))
 
-                    if len(r) == 0:
+                    if len(r) > 0:
+                        next_ip = '.'.join(map(str, r[0].rdata))
+                    else:
                         r = list(filter(lambda x: x.type == 2, d.authorities))
 
-                    next_ip = '.'.join(map(str, r[0].rdata))
+                        if len(r) == 0:
+                            break
+
+                        domain = dns_structure.get_url(0, r[0].rdata)[0] \
+                            .decode()
+                        next_ip = ROOT_SERVER_IP
+
+                        while d.header.ancount == 0:
+                            sub_q = dns_structure.Question(domain, 1, 1)
+                            pack = dns_structure.DnsPackage(
+                                data_from_client.header, [sub_q], [], [], [])
+
+                            d = receive_data(next_ip, pack)
+
+                            r = list(
+                                filter(lambda x: x.type == 1, d.additionals))
+                            next_ip = '.'.join(map(str, r[0].rdata))
+
+                        next_ip = '.'.join(map(str, d.answers[0].rdata))
+
                     d = receive_data(next_ip, data_from_client)
 
+                ttl = min((x.ttl
+                           for x in d.answers + d.additionals + d.authorities),
+                          default=0)
+
                 cache[q] = (d.answers, d.additionals, d.authorities,
-                            datetime.now() +
-                            timedelta(seconds=d.answers[0].ttl))
+                            datetime.now() + timedelta(seconds=ttl))
 
                 ans += d.answers
                 add += d.additionals
