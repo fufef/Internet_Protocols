@@ -1,5 +1,6 @@
 import socket
 from datetime import datetime, timedelta
+
 import dns_structure
 
 root = "198.41.0.4"
@@ -20,8 +21,9 @@ def receive_data(server, data_from_client):
         data_from_root = dns_structure.DnsPackage.unpack(
             sock_for_root.recvfrom(1024)[0])
     except socket.timeout:
-        print("Timeout was 2 seconds. Please check your Internet connection.")
+        print("Timeout was 2 seconds. Please check Internet connection.")
         return None
+
     return data_from_root
 
 
@@ -29,8 +31,10 @@ def main():
     port = 53
     host = "127.0.0.1"
     cache = dict()
+
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((host, port))
+
     while True:
         try:
             data, address = sock.recvfrom(1024)
@@ -38,26 +42,31 @@ def main():
                 data_from_client = dns_structure.DnsPackage.unpack(data)
                 rcode = data_from_client.header.rcode
                 sock_for_root = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
                 ans = []
                 add = []
                 auth = []
                 for q in data_from_client.questions:
                     if q in cache:
                         q_ans, q_add, q_auth, time_limit = cache[q]
+
                         if datetime.now() < time_limit:
                             ans += q_ans
                             add += q_add
                             auth += q_auth
                             continue
+
                     pack_to_root = dns_structure.DnsPackage(
                         data_from_client.header, [q], [], [], []).pack()
 
                     sock_for_root.sendto(pack_to_root, (root, 53))
                     sock_for_root.settimeout(2)
                     try:
-                        data_from_root = dns_structure.DnsPackage.unpack(sock_for_root.recvfrom(1024)[0])
+                        data_from_root = dns_structure.DnsPackage.unpack(
+                            sock_for_root.recvfrom(1024)[0])
                     except socket.timeout:
-                        print("Timeout was 2 seconds. Please check your Internet connection.")
+                        print(
+                            "Timeout was 2 seconds. Please check Internet connection.")
                         break
 
                     d = data_from_root
@@ -75,7 +84,7 @@ def main():
 
                         if len(r) > 0:
                             next_ip = '.'.join(map(str, r[0].rdata))
-                        else:
+                        elif d.questions[0].qtype != 2:
                             r = list(
                                 filter(lambda x: x.type == 2, d.authorities))
 
@@ -94,12 +103,13 @@ def main():
 
                                 d = receive_data(next_ip, pack)
 
-                                r = list(
-                                    filter(lambda x: x.type == 1,
-                                           d.additionals))
+                                r = list(filter(lambda x: x.type == 1,
+                                                d.additionals))
                                 next_ip = '.'.join(map(str, r[0].rdata))
 
                             next_ip = '.'.join(map(str, d.answers[0].rdata))
+                        else:
+                            break
 
                         d = receive_data(next_ip, data_from_client)
 
@@ -127,8 +137,8 @@ def main():
 
                 a = pack_to_client.pack()
                 sock.sendto(a, address)
-        except Exception:
-            pass
+        except Exception as e:
+            print(e)
 
 
 if __name__ == '__main__':

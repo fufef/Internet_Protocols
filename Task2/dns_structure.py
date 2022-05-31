@@ -1,21 +1,19 @@
 import struct
 
-types = {"A": 1, "NS": 1, "MD": 1, "MF": 1, "CNAME": 1, "SOA": 1, }
-
 
 def get_url(start, data):
     name = b''
     l = data[start]
     while l:
-        if l & 0b1100_0000:
+        if l & 0b1100_0000 == 0b1100_0000:
             start1 = struct.unpack('!H', data[start:start + 2])[0] & \
                      0b11_1111_1111_1111
             name1 = get_url(start1, data)[0]
 
             if name:
-                name = name1
-            else:
                 name += b'.' + name1
+            else:
+                name = name1
 
             return name, start + 2
         else:
@@ -25,6 +23,22 @@ def get_url(start, data):
         l = data[start]
 
     return name.strip(b'.'), start + 1
+
+
+def _get_rdata(data, start, rdlen, type):
+    res = data[start:start + rdlen]
+
+    if type == 2 and res[-2] & 0b1100_0000 == 0b1100_0000:
+        index = struct.unpack('!H', res[-2:])[0] & 0b11_1111_1111_1111
+        url = get_url(index, data)[0]
+        res = res[:-2]
+
+        for a in url.strip(b'.').split(b'.'):
+            res += struct.pack("!B", len(a)) + a\
+
+        res += b'\x00'
+
+    return res
 
 
 class DnsPackage:
@@ -68,9 +82,9 @@ class DnsPackage:
             type, clas, ttl, rdlength = struct.unpack("!HHIH",
                                                       data[start:start + 10])
             start += 10
-            rdata = data[start:start + rdlength]
+            rdata = _get_rdata(data, start, rdlength, type)
             start += rdlength
-            answers.append(Answer(name, type, clas, ttl, rdlength, rdata))
+            answers.append(Answer(name, type, clas, ttl, len(rdata), rdata))
 
         authorities = []
         for i in range(true_header.nscount):
@@ -79,9 +93,9 @@ class DnsPackage:
             type, clas, ttl, rdlength = struct.unpack("!HHIH",
                                                       data[start:start + 10])
             start += 10
-            rdata = data[start:start + rdlength]
+            rdata = _get_rdata(data, start, rdlength, type)
             start += rdlength
-            authorities.append(Answer(name, type, clas, ttl, rdlength, rdata))
+            authorities.append(Answer(name, type, clas, ttl, len(rdata), rdata))
 
         additionals = []
         for i in range(true_header.arcount):
@@ -90,9 +104,9 @@ class DnsPackage:
             type, clas, ttl, rdlength = struct.unpack("!HHIH",
                                                       data[start:start + 10])
             start += 10
-            rdata = data[start:start + rdlength]
+            rdata = _get_rdata(data, start, rdlength, type)
             start += rdlength
-            additionals.append(Answer(name, type, clas, ttl, rdlength, rdata))
+            additionals.append(Answer(name, type, clas, ttl, len(rdata), rdata))
 
         return DnsPackage(true_header, questions, answers, authorities,
                           additionals)

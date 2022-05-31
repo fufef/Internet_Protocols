@@ -12,6 +12,7 @@
 
 ![](Example1.png)
 ![](Example4.png)
+![](Example5.png)
 
 *Ошибка несуществующего доменного имени:*
 ![](Example2.png)
