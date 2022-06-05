@@ -1,4 +1,5 @@
 import struct
+from base64 import b64encode, b64decode
 
 
 def get_url(start, data):
@@ -34,7 +35,7 @@ def _get_rdata(data, start, rdlen, type):
         res = res[:-2]
 
         for a in url.strip(b'.').split(b'.'):
-            res += struct.pack("!B", len(a)) + a\
+            res += struct.pack("!B", len(a)) + a
 
         res += b'\x00'
 
@@ -175,6 +176,13 @@ class Question:
         return ((hash(self.qname) * 69127) + hash(self.qtype)) * 69127 + \
                hash(self.qclass)
 
+    def as_b64_str(self):
+        return b64encode(self.pack()).decode()
+
+    @staticmethod
+    def from_b64_str(data):
+        return Answer.unpack(b64decode(data))
+
 
 class Answer:
     def __init__(self, name, type, clas, ttl, rdlength, rdata):
@@ -193,6 +201,13 @@ class Answer:
 
         return res + struct.pack("!BHHIH", 0b0, self.type, self.clas,
                                  self.ttl, self.rdlength) + self.rdata
+
+    def as_b64_str(self):
+        return b64encode(self.pack()).decode()
+
+    @staticmethod
+    def from_b64_str(data):
+        return Answer.unpack(b64decode(data))
 
     @staticmethod
     def unpack(data):

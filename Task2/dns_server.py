@@ -1,8 +1,8 @@
 import socket
 from datetime import datetime, timedelta
 
-import dns_structure
 import cache_struct
+import dns_structure
 
 root = "198.41.0.4"
 errors = {
@@ -12,6 +12,7 @@ errors = {
     4: "Cannot execute query of this type! ",
     5: "Security error! "
 }
+time_pattern = '%d/%m/%Y %H:%M:%S'
 
 
 def receive_data(server, data_from_client):
@@ -48,13 +49,18 @@ def main():
                 add = []
                 auth = []
                 for q in data_from_client.questions:
-                    qs = q.pack().decode('latin-1')
+                    qs = q.as_b64_str()
+
                     if qs in cache:
                         dt = cache[qs]
-                        q_ans, q_add, q_auth, time_limit = [dns_structure.Answer.unpack(i.encode('latin-1')) for i in dt[0]], \
-                                                           [dns_structure.Answer.unpack(i.encode('latin-1')) for i in dt[1]], \
-                                                           [dns_structure.Answer.unpack(i.encode('latin-1')) for i in dt[2]], \
-                                                           datetime.strptime(dt[3], '%d/%m/%Y %H:%M:%S')
+
+                        q_ans = [dns_structure.Answer.from_b64_str(i) for i
+                                 in dt[0]]
+                        q_add = [dns_structure.Answer.from_b64_str(i) for i
+                                 in dt[1]]
+                        q_auth = [dns_structure.Answer.from_b64_str(i) for i
+                                  in dt[2]]
+                        time_limit = datetime.strptime(dt[3], time_pattern)
 
                         if datetime.now() < time_limit:
                             ans += q_ans
@@ -80,19 +86,17 @@ def main():
                         rcode = d.header.rcode
 
                         if rcode:
-                            print(
-                                errors[rcode],
-                                "Question was: name=", q.qname, ", type=",
-                                q.qtype, ", class=", q.qclass, sep="")
+                            print(errors[rcode], "Question was: name=", q.qname,
+                                  ", type=", q.qtype, ", class=", q.qclass,
+                                  sep="")
                             break
 
-                        r = list(filter(lambda x: x.type == 1, d.additionals))
+                        r = [x for x in d.additionals if x.type == 1]
 
                         if len(r) > 0:
                             next_ip = '.'.join(map(str, r[0].rdata))
                         elif d.questions[0].qtype != 2:
-                            r = list(
-                                filter(lambda x: x.type == 2, d.authorities))
+                            r = [x for x in d.authorities if x.type == 2]
 
                             if not r:
                                 break
@@ -108,9 +112,7 @@ def main():
                                     [])
 
                                 d = receive_data(next_ip, pack)
-
-                                r = list(filter(lambda x: x.type == 1,
-                                                d.additionals))
+                                r = [x for x in d.additionals if x.type == 1]
                                 next_ip = '.'.join(map(str, r[0].rdata))
 
                             next_ip = '.'.join(map(str, d.answers[0].rdata))
@@ -119,16 +121,16 @@ def main():
 
                         d = receive_data(next_ip, data_from_client)
 
-                    ttl = min((x.ttl
-                               for x in
+                    ttl = min((x.ttl for x in
                                d.answers + d.additionals + d.authorities),
                               default=0)
 
                     if rcode == 0:
-                        dt = [[i.pack().decode('latin-1') for i in d.answers],
-                              [i.pack().decode('latin-1') for i in d.additionals],
-                              [i.pack().decode('latin-1') for i in d.authorities],
-                              (datetime.now() + timedelta(seconds=ttl)).strftime('%d/%m/%Y %H:%M:%S')]
+                        dt = [[i.as_b64_str() for i in d.answers],
+                              [i.as_b64_str() for i in d.additionals],
+                              [i.as_b64_str() for i in d.authorities],
+                              (datetime.now() + timedelta(seconds=ttl))
+                                  .strftime(time_pattern)]
                         cache[qs] = dt
                         cache_struct.write_in_cache((qs, dt))
 
@@ -145,8 +147,7 @@ def main():
                 pack_to_client = dns_structure.DnsPackage(
                     ans_header, data_from_client.questions, ans, auth, add)
 
-                a = pack_to_client.pack()
-                sock.sendto(a, address)
+                sock.sendto(pack_to_client.pack(), address)
         except Exception as e:
             print(e)
 
