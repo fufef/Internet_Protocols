@@ -168,6 +168,9 @@ class Question:
         return self.qname == other.qname and self.qtype == other.qtype and \
                self.qclass == other.qclass
 
+    def to_str(self):
+        return f"{self.qname},{self.qtype},{self.qclass}"
+
     def __hash__(self):
         return ((hash(self.qname) * 69127) + hash(self.qtype)) * 69127 + \
                hash(self.qclass)
@@ -190,3 +193,14 @@ class Answer:
 
         return res + struct.pack("!BHHIH", 0b0, self.type, self.clas,
                                  self.ttl, self.rdlength) + self.rdata
+
+    @staticmethod
+    def unpack(data):
+        name, start = get_url(0, data)
+        name = name.decode('utf-8')
+        type, clas, ttl, rdlength = struct.unpack("!HHIH",
+                                                  data[start:start + 10])
+        start += 10
+        rdata = _get_rdata(data, start, rdlength, type)
+        start += rdlength
+        return Answer(name, type, clas, ttl, len(rdata), rdata)

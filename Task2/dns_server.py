@@ -2,6 +2,7 @@ import socket
 from datetime import datetime, timedelta
 
 import dns_structure
+import cache_struct
 
 root = "198.41.0.4"
 errors = {
@@ -30,7 +31,7 @@ def receive_data(server, data_from_client):
 def main():
     port = 53
     host = "127.0.0.1"
-    cache = dict()
+    cache = cache_struct.get_cache()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((host, port))
@@ -47,8 +48,13 @@ def main():
                 add = []
                 auth = []
                 for q in data_from_client.questions:
-                    if q in cache:
-                        q_ans, q_add, q_auth, time_limit = cache[q]
+                    qs = q.pack().decode('latin-1')
+                    if qs in cache:
+                        dt = cache[qs]
+                        q_ans, q_add, q_auth, time_limit = [dns_structure.Answer.unpack(i.encode('latin-1')) for i in dt[0]], \
+                                                           [dns_structure.Answer.unpack(i.encode('latin-1')) for i in dt[1]], \
+                                                           [dns_structure.Answer.unpack(i.encode('latin-1')) for i in dt[2]], \
+                                                           datetime.strptime(dt[3], '%d/%m/%Y %H:%M:%S')
 
                         if datetime.now() < time_limit:
                             ans += q_ans
@@ -119,8 +125,12 @@ def main():
                               default=0)
 
                     if rcode == 0:
-                        cache[q] = (d.answers, d.additionals, d.authorities,
-                                    datetime.now() + timedelta(seconds=ttl))
+                        dt = [[i.pack().decode('latin-1') for i in d.answers],
+                              [i.pack().decode('latin-1') for i in d.additionals],
+                              [i.pack().decode('latin-1') for i in d.authorities],
+                              (datetime.now() + timedelta(seconds=ttl)).strftime('%d/%m/%Y %H:%M:%S')]
+                        cache[qs] = dt
+                        cache_struct.write_in_cache((qs, dt))
 
                     ans += d.answers
                     add += d.additionals
