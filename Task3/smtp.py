@@ -14,6 +14,7 @@ smtp_responses = {555: 'MAIL FROM/RCPT TO parameters not recognized or not imple
                   554: 'Transaction failed или No SMTP service here',
                   553: 'Requested action not taken: mailbox name not allowed',
                   550: 'Requested mail action not taken: mailbox unavailable',
+                  535: 'Authentication failed',
                   500: 'Syntax error, command unrecognized',
                   455: 'Server unable to accommodate parameters',
                   451: 'Requested action aborted: error in processing',
@@ -29,6 +30,15 @@ def check_response(req, is_end=False):
         print(smtp_responses[code])
 
 
+def is_connected():
+    try:
+        socket.create_connection(("1.1.1.1", 53))
+        return True
+    except OSError:
+        pass
+    return False
+
+
 def request(sock, req):
     sock.send((req + '\n').encode())
     recv_data = sock.recv(65535).decode()
@@ -36,6 +46,10 @@ def request(sock, req):
 
 
 def main():
+    if not is_connected():
+        print('Please check your Internet connection')
+        return
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
         client.connect((HOST_ADDR, PORT))
         client = ssl.wrap_socket(client)
