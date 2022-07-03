@@ -5,10 +5,14 @@ import ssl
 from pathlib import Path
 from settings import USER_NAME, PASSWORD, HOST_ADDR, PORT, RECIPIENT
 
-mime_dict = {'image': ['image/jpeg', 'image/webp', 'image/bmp', 'image/png', 'image/gif'],
-             'text': ['text/plain', 'text/html', 'text/css', 'text/calendar', 'text/javscript'],
-             'video': ['video/mpeg'],
-             'application': ['application/json', 'application/gzip']}
+mime_dict = {'image': ['image/jpeg', 'image/webp', 'image/bmp', 'image/png', 'image/gif', 'image/pjpeg'],
+             'text': ['text/plain', 'text/html', 'text/css', 'text/csv', 'text/cmd', 'text/php', 'text/javascript'],
+             'video': ['video/mpeg', 'video/mp4', 'video/webm'],
+             'audio': ['audio/mp4', 'audio/webm', 'audio/vnd.wave', 'audio/mpeg', 'audio/aac'],
+             'application': ['application/pdf', 'application/xml', 'application/msword', 'application/json',
+                             'application/zip', 'application/ogg'],
+             'multipart': ['multipart/mixed', 'multipart/alternative'],
+             'model': ['model/example', 'model/mesh', 'model/x3d+xml', 'model/iges']}
 
 smtp_responses = {555: 'MAIL FROM/RCPT TO parameters not recognized or not implemented',
                   554: 'Transaction failed или No SMTP service here',
@@ -80,7 +84,7 @@ def main():
 
         bound = '--my-bound-mix'
 
-        msg += 'Content-Type: multipart/mixed;' + \
+        msg += f'Content-Type: {mime_dict["multipart"][0]};' + \
                f'boundary="{bound}"'
 
         msg += '\n\n'
