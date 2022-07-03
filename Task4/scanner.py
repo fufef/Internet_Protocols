@@ -1,4 +1,5 @@
 import socket
+import threading
 
 
 def print_success(protocol_suite, port):
@@ -6,23 +7,30 @@ def print_success(protocol_suite, port):
 
 
 def tcp_scan(host, port):
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.settimeout(1)
-    try:
-        sock.connect((host, port))
-        print_success('TCP', port)
-    except (socket.timeout, OSError):
-        pass
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.5)
+        try:
+            sock.connect((host, port))
+            print_success('TCP', port)
+        except (OSError, socket.timeout):
+            return
 
 
 def udp_scan(host, port):
-    sock = socket.socket(socket.SOCK_DGRAM)
-    sock.settimeout(2)
-    try:
-        sock.connect((host, port))
-        print_success('UDP', port)
-    except (socket.timeout, OSError):
-        pass
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        sock.settimeout(1)
+        try:
+            sock.sendto(b'helo', (host, port))
+            sock.recvfrom(1024)
+        except socket.timeout:
+            print_success('UDP', port)
+        except OSError:
+            return
+
+
+def start_scan(host, port):
+    tcp_scan(host, port)
+    udp_scan(host, port)
 
 
 def get_args():
@@ -41,8 +49,8 @@ def get_args():
 def main():
     host, from_port, to_port = get_args()
     for port in range(from_port, to_port):
-        tcp_scan(host, port)
-        # udp_scan(host, port)
+        t = threading.Thread(target=start_scan(host, port))
+        t.start()
 
 
 if __name__ == '__main__':
